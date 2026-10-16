@@ -1,54 +1,67 @@
 # Compras por unidad
 
-Implementación del desafío 1: `GET /compras/{unidad}`, con Java 21, Spring Boot 4.1.1 y Maven.
+API para consultar compras registradas en CSV y convertir sus montos a pesos chilenos usando la cotización histórica de UF o dólar de mindicador.cl.
+
+## Requisitos
+
+- Java 21 y Maven para ejecutar localmente.
+- Docker y Docker Compose para ejecutar en contenedor.
+
+## Ejecutar con Docker Compose
 
 Desde la raíz del proyecto:
+
+```powershell
+docker compose up --build
+```
+
+La API queda disponible en `http://localhost:3001`. Compose monta `compras.csv` desde el host en modo solo lectura; el archivo no se copia a la imagen. Para usar otro archivo sin reconstruir la imagen:
+
+```powershell
+$env:CSV_FILE = "./datos/compras.csv"
+docker compose up --build
+```
+
+Se puede cambiar el puerto publicado y usado por la aplicación con `APP_PORT` (por defecto `3001`). El contenedor ejecuta la aplicación como usuario no root y define `APP_ENV=production`.
+
+Para construir solo la imagen:
+
+```powershell
+docker build -t tarea2:local .
+```
+
+## Ejecutar localmente con Maven
 
 ```powershell
 .\mvnw.cmd test
 .\mvnw.cmd spring-boot:run
 ```
 
-Consultas:
+Por defecto, Spring Boot escucha en el puerto `3001`. `APP_PORT` cambia el puerto y `CSV_PATH` permite indicar la ruta del archivo CSV.
+
+## Endpoints
 
 ```text
-GET http://localhost:8080/compras/uf
-GET http://localhost:8080/compras/dolar
+GET http://localhost:3001/compras/uf
+GET http://localhost:3001/compras/dolar
+GET http://localhost:3001/compras/detalle/3
 ```
 
-La respuesta contiene `unidad` (`UF` o `USD`), `compras` y `total_pesos`.
-Cada compra contiene `id`, `producto`, `monto`, `fecha`, `valor_unidad` y `monto_pesos`.
-Se conserva el orden del CSV. Cada monto se redondea al peso más cercano (0,5 hacia arriba)
-y el total suma los montos ya redondeados.
+El primer endpoint devuelve las compras de UF; el segundo, las compras en USD. Ambos incluyen `unidad`, `compras` y `total_pesos`. Cada compra contiene `id`, `producto`, `monto`, `fecha`, `valor_unidad` y `monto_pesos`. El detalle devuelve esos datos para una compra e incluye su `unidad`.
 
-El archivo externo `compras.csv` se lee en cada solicitud. Se puede cambiar su ubicación
-mediante la variable de entorno `CSV_PATH`. Se usa el formato de cinco columnas del archivo
-entregado: `id,producto,monto,unidad,fecha`, con fechas `yyyy-MM-dd` y punto decimal.
+Las conversiones usan la cotización correspondiente a la fecha de cada compra. Los montos convertidos se redondean al peso más cercano (0,5 hacia arriba) y el total suma los valores ya redondeados. Se conserva el orden del CSV.
 
-El valor histórico se consulta en
-`https://mindicador.cl/api/{uf|dolar}/{dd-MM-yyyy}`, según la
-[documentación de mindicador.cl](https://mindicador.cl/).
-Se consulta la cotización correspondiente a la fecha de cada compra.
+El CSV debe tener las columnas `id,producto,monto,unidad,fecha`, con fecha `yyyy-MM-dd` y punto decimal. `compras.csv` está en la raíz del repositorio.
 
-El código mantiene la estructura inicial:
+## Pipeline y publicación
 
-- `model/Compras`: representa una fila del CSV mediante un `record`, con fecha `LocalDate`
-  y monto `BigDecimal`. Java genera el constructor y los accesores; no necesita setters.
-- `configuracion/RestClientConfig`: crea el bean `RestClient` para llamar a la API.
-- `service/IndicadorService`: consulta el valor histórico con ese `RestClient`.
-- `service/ComprasService`: lee el CSV, filtra por unidad y calcula los montos y el total.
-- `controller/ComprasController`: expone `GET /compras/{unidad}`.
+GitHub Actions ejecuta los jobs `test`, `build` y `publish` en ese orden. `build` genera el JAR, construye la imagen y comprueba que su tamaño sea menor que 250 MB. `publish` solo se ejecuta al hacer push a `main` y publica en GHCR los tags `latest` y los primeros siete caracteres del SHA del commit.
 
-- Unidad distinta de `uf` o `dolar`: HTTP 400.
-- Sin compras de la unidad: HTTP 200, lista vacía y total 0.
-- Sin cotización para la fecha exacta: HTTP 422; no se sustituye por otra fecha.
-- Falla de mindicador.cl: HTTP 502.
-- Archivo inexistente o malformado: HTTP 500.
+La primera publicación de un paquete GHCR queda privada por defecto. Después de la primera ejecución exitosa en `main`, cambiar la visibilidad del paquete a **Public** en GitHub: abrir el paquete en el perfil de la cuenta, entrar a **Package settings** y cambiar su visibilidad. GitHub no permite volver a hacerlo privado después de publicar un paquete como público.
 
-Las pruebas usan datos temporales y respuestas HTTP simuladas; no dependen de mindicador.cl.
+## Integrantes y desafíos
 
-Si el endpoint responde HTTP 502, revise el campo `message` y la consola de Spring Boot.
-La consola registra la causa de la consulta fallida (conexión, tiempo de espera, TLS o error HTTP).
-Puede comprobar la API externa consultando directamente
-`https://mindicador.cl/api/uf/01-09-2026`. Si esa consulta también falla, se necesita
-restablecer la conexión o esperar a que el proveedor vuelva a responder.
+| Integrante | Usuario de GitHub | Desafíos realizados |
+| --- | --- | --- |
+| Juan Pablo Cid | [@jcidvidal](https://github.com/jcidvidal) | 1. Compras por unidad; 4. Pipeline |
+| John | [@JohnFernandezR](https://github.com/JohnFernandezR) | 2. Detalle de compra; 3. Docker |

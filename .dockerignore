@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+.idea
+target
+compras.csv
+*.csv
+Dockerfile*
+compose.yaml
+docker-compose.yml
+README.md

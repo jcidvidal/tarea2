@@ -1,0 +1,14 @@
+services:
+  tarea2:
+    image: tarea2:docker
+    build:
+      context: .
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    environment:
+      APP_PORT: ${APP_PORT:-3001}
+      CSV_PATH: /data/compras.csv
+      APP_ENV: production
+    volumes:
+      - ./compras.csv:/data/compras.csv:ro
+    restart: unless-stopped

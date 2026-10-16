@@ -1,0 +1,100 @@
+name: Pipeline
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run tests
+        run: ./mvnw --batch-mode --no-transfer-progress test
+
+  build:
+    name: Build JAR and Docker image
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Package application
+        run: ./mvnw --batch-mode --no-transfer-progress -DskipTests package
+
+      - name: Build Docker image
+        run: docker build --pull --tag tarea2:ci .
+
+      - name: Enforce image size limit
+        shell: bash
+        run: |
+          image_size=$(docker image inspect tarea2:ci --format='{{.Size}}')
+          max_size=$((250 * 1024 * 1024))
+          echo "Image size: $image_size bytes (limit: $max_size bytes)"
+          test "$image_size" -lt "$max_size"
+
+      - name: Save built image for publishing
+        run: docker save tarea2:ci | gzip > "$RUNNER_TEMP/tarea2-image.tar.gz"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: tarea2-docker-image
+          path: ${{ runner.temp }}/tarea2-image.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish image to GHCR
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download built image
+        uses: actions/download-artifact@v8
+        with:
+          name: tarea2-docker-image
+          path: ${{ runner.temp }}/tarea2-image
+
+      - name: Load Docker image
+        run: gzip -dc "$RUNNER_TEMP/tarea2-image/tarea2-image.tar.gz" | docker load
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Tag and publish image
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          short_sha="${GITHUB_SHA::7}"
+          docker tag tarea2:ci "$image:latest"
+          docker tag tarea2:ci "$image:$short_sha"
+          docker push "$image:latest"
+          docker push "$image:$short_sha"
